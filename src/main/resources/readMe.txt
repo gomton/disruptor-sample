@@ -1,0 +1,77 @@
+---环形队列ringbuffer
+数据缓冲区，不同线程之间传递数据的BUFFER。RingBuffer是存储消息的地方，
+通过一个名为cursor的Sequence对象指示队列的头，
+协调多个生产者向RingBuffer中添加消息，并用于在消费者端判断RingBuffer是否为空。
+巧妙的是，表示队列尾的Sequence并没有在RingBuffer中，而是由消费者维护。
+这样的好处是多个消费者处理消息的方式更加灵活，可以在一个RingBuffer上实现消息的单播，多播，流水线以及它们的组合。
+在RingBuffer中维护了一个名为gatingSequences的Sequence数组来跟踪相关Sequence。
+
+---Producer/Consumer
+Producer即生产者，比如下图中的P1. 只是泛指调用 Disruptor 发布事件
+(我们把写入缓冲队列的一个元素定义为一个事件)的用户代码。
+
+---Consumer和EventProcessor是一个概念，新的版本中由EventProcessor概念替代了Consumer。
+有两种实现策略，一个是SingleThreadedStrategy（单线程策略）另一个是 MultiThreadedStrategy（多线程策略），
+两种策略对应的实现类为SingleProducerSequencer、MultiProducerSequencer
+【都实现了Sequencer类，之所以叫Sequencer是因为他们都是通过Sequence来实现数据写，Sequence的概念参见③】 ，
+它们定义在生产者和消费者之间快速、正确地传递数据的并发算法。
+具体使用哪个根据自己的场景来定，[多线程的策略使用了AtomicLong（Java提供的CAS操作），
+而单线程的使用long，没有锁也没有CAS。这意味着单线程版本会非常快，因为它只有一个生产者，不会产生序号上的冲突]
+
+Producer生产event数据，EventHandler作为消费者消费event并进行逻辑处理。消费消息的进度通过Sequence来控制。
+
+③Sequence
+Sequence是一个递增的序号，说白了就是计数器；其次，由于需要在线程间共享，所以Sequence是引用传递，并且是线程安全的；
+再次，Sequence支持CAS操作；最后，为了提高效率，Sequence通过padding来避免伪共享，关于解决伪共享的问题，
+可以参见下面章节详细的介绍。
+通过顺序递增的序号来编号管理通过其进行交换的数据（事件），对数据(事件)的处理过程总是沿着序号逐个递增处理。
+一个 Sequence 用于跟踪标识某个特定的事件处理者( RingBuffer/Consumer )的处理进度。
+生产者对RingBuffer的互斥访问，生产者与消费者之间的协调以及消费者之间的协调，都是通过Sequence实现。
+几乎每一个重要的组件都包含Sequence。
+
+说明：虽然一个 AtomicLong 也可以用于标识进度，但定义 Sequence 来负责该问题还有另一个目的，
+那就是防止不同的 Sequence 之间的CPU缓存伪共享(Flase Sharing)问题。
+
+④Sequence Barrier
+用于保持对RingBuffer的 main published Sequence 和Consumer依赖的其它Consumer的 Sequence 的引用。 
+Sequence Barrier 还定义了决定 Consumer 是否还有可处理的事件的逻辑。
+SequenceBarrier用来在消费者之间以及消费者和RingBuffer之间建立依赖关系。
+在Disruptor中，依赖关系实际上指的是Sequence的大小关系，
+消费者A依赖于消费者B指的是消费者A的Sequence一定要小于等于消费者B的Sequence，
+这种大小关系决定了处理某个消息的先后顺序。因为所有消费者都依赖于RingBuffer，
+所以消费者的Sequence一定小于等于RingBuffer中名为cursor的Sequence，
+即消息一定是先被生产者放到Ringbuffer中，然后才能被消费者处理。不好理解的话，可以看下面章节事例配合了解。
+SequenceBarrier在初始化的时候会收集需要依赖的组件的Sequence，RingBuffer的cursor会被自动的加入其中。
+需要依赖其他消费者和/或RingBuffer的消费者在消费下一个消息时，会先等待在SequenceBarrier上，
+直到所有被依赖的消费者和RingBuffer的Sequence大于等于这个消费者的Sequence。
+当被依赖的消费者或RingBuffer的Sequence有变化时，会通知SequenceBarrier唤醒等待在它上面的消费者。
+
+ 
+⑤Wait Strategy
+当消费者等待在SequenceBarrier上时，有许多可选的等待策略，不同的等待策略在延迟和CPU资源的占用上有所不同，
+可以视应用场景选择：
+BusySpinWaitStrategy ： 自旋等待，类似Linux Kernel使用的自旋锁。低延迟但同时对CPU资源的占用也多。
+BlockingWaitStrategy ： 使用锁和条件变量。CPU资源的占用少，延迟大。
+SleepingWaitStrategy ： 在多次循环尝试不成功后，选择让出CPU，等待下次调度，多次调度后仍不成功，
+尝试前睡眠一个纳秒级别的时间再尝试。这种策略平衡了延迟和CPU资源占用，但延迟不均匀。
+YieldingWaitStrategy ： 在多次循环尝试不成功后，选择让出CPU，等待下次调。平衡了延迟和CPU资源占用，
+但延迟也比较均匀。
+PhasedBackoffWaitStrategy ： 上面多种策略的综合，CPU资源的占用少，延迟大。
+---Event
+在 Disruptor 的语义中，生产者和消费者之间进行交换的数据被称为事件(Event)。
+它不是一个被 Disruptor 定义的特定类型，而是由 Disruptor 的使用者定义并指定。
+
+---EventProcessor
+EventProcessor 持有特定消费者(Consumer)的 Sequence，并提供用于调用事件处理实现的事件循环(Event Loop)。
+通过把EventProcessor提交到线程池来真正执行，有两类Processor:
+其中一类消费者是BatchEvenProcessor。每个BatchEvenProcessor有一个Sequence，
+来记录自己消费RingBuffer中消息的情况。所以，一个消息必然会被每一个BatchEvenProcessor消费。
+
+另一类消费者是WorkProcessor。每个WorkProcessor也有一个Sequence，
+多个WorkProcessor还共享一个Sequence用于互斥的访问RingBuffer。
+一个消息被一个WorkProcessor消费，就不会被共享一个Sequence的其他WorkProcessor消费。
+这个被WorkProcessor共享的Sequence相当于尾指针
+
+----EventHandler
+Disruptor 定义的事件处理接口，由用户实现，用于处理事件，是 Consumer 的真正实现。开发者实现EventHandler，
+然后作为入参传递给EventProcessor的实例。
