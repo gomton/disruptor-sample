@@ -3,17 +3,24 @@ package com.lcj.loan.disruptor;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.PostConstruct;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service("withhold")
-public class WithholdEventHandler extends AbstractEventHandler {
+public class WithholdEventHandler extends AbstractEventHandler implements EventHandler{
 	
 	private Logger logger = LoggerFactory.getLogger(WithholdEventHandler.class);
 	
 	private AtomicInteger count = new AtomicInteger(0);
  
+	@PostConstruct
+	public void init(){ 
+		logger.info("WithholdEventHandler constract ");
+	}
+	
 	@Override
 	void processEvent(Event event) {
 		// TODO 根据事件key查询相关信息

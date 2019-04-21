@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.lcj.loan.annotation.EventQueue;
+
 
 public abstract class AbstractEventHandler implements EventHandler {
 	@Resource

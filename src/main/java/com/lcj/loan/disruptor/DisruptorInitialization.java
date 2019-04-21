@@ -1,9 +1,12 @@
 package com.lcj.loan.disruptor;
 
+import java.io.UnsupportedEncodingException;
 import java.lang.Thread.UncaughtExceptionHandler;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,12 +21,13 @@ import org.springframework.beans.BeansException;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.stereotype.Service;
 
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.lcj.loan.annotation.EventQueue;
+
 import com.lmax.disruptor.BlockingWaitStrategy;
 
 import com.lmax.disruptor.EventTranslator;
@@ -55,7 +59,8 @@ public class DisruptorInitialization implements ApplicationContextAware{
 	@PostConstruct
 	public void init(){ 
 		eventHandlerMap = applicationContext.getBeansOfType(EventHandler.class);
-		logger.info("获取事件处理机，个数为:", eventHandlerMap.size());
+		 
+		logger.info("获取事件处理机，个数为:{}", eventHandlerMap.size());
 		disruptor = new Disruptor<Event>(new DefaultEventFactory(),1024,Executors.newFixedThreadPool(eventHandlerMap.size()), ProducerType.MULTI,new BlockingWaitStrategy());
 		//异常处理
 		disruptor.handleExceptionsWith(new ExceptionHandler(){
@@ -149,7 +154,7 @@ public class DisruptorInitialization implements ApplicationContextAware{
 				String failKey = null;
 				try{
 					final String key = eventQueue.rpop(eventType);
-//					logger.doInfo(eventType+"从队列中获取元素:", key);
+    				logger.info(eventType+"从队列中获取元素:{}", key);
 					if(key != null){
 						failKey = key;
 						eventQueue.lpush(eventType+"_processing", key);
@@ -160,7 +165,7 @@ public class DisruptorInitialization implements ApplicationContextAware{
 								event.setKey(key);
 							}							
 						});
-//						logger.doInfo(eventType+"向disruptor发布事件:", key);
+						logger.info(eventType+"向disruptor发布事件:{}", key);
 						
 					}else{
 						//释放cpu，避免长期占用cpu，导致负载增加
@@ -189,5 +194,15 @@ public class DisruptorInitialization implements ApplicationContextAware{
 		public void setRunning(boolean running) {
 			this.running = running;
 		}
+	}
+	
+	public static void main(String[] args) throws InterruptedException, UnsupportedEncodingException {
+		String s = "Sat%20Apr%2020%202019%2011:13:31%20GMT+0800%20(%E4%B8%AD%E5%9B%BD%E6%A0%87%E5%87%86%E6%97%B6%E9%97%B4)";
+		String aaa = URLDecoder.decode(s,"UTF-8");
+		System.out.println(aaa);
+		
+		ClassPathXmlApplicationContext context = new ClassPathXmlApplicationContext(
+				new String[] { "applicationContext.xml" });
+		context.start();
 	}
 }

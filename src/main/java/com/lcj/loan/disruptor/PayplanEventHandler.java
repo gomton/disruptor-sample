@@ -3,16 +3,23 @@ package com.lcj.loan.disruptor;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.PostConstruct;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service("payplan")
-public class PayplanEventHandler extends AbstractEventHandler {
+public class PayplanEventHandler extends AbstractEventHandler implements EventHandler {
  
 	private Logger logger = LoggerFactory.getLogger(PayplanEventHandler.class);
 	
 	private AtomicInteger count = new AtomicInteger(0);
+	
+	@PostConstruct
+	public void init(){ 
+		logger.info("PayplanEventHandler constract ");
+	}
 	
 	@Override
 	void processEvent(Event event) {

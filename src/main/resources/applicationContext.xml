@@ -12,7 +12,8 @@
 
 	<context:property-placeholder
 		location="classpath:redis.properties" />
-	<context:component-scan	base-package="com.lcj.loan"></context:component-scan>
+	<context:component-scan	base-package="com.lcj.loan.disruptor"/>
+	<context:component-scan	base-package="com.lcj.loan.redis"/>
 <!-- 	<bean id="poolConfig" class="redis.clients.jedis.JedisPoolConfig">
 		<property name="maxIdle" value="${redis.maxIdle}" />
 		<property name="maxActive" value="${redis.maxActive}" />
